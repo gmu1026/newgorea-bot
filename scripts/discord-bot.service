@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=YOUR_USERNAME
+User=pzuser
 WorkingDirectory=/opt/discord-bot
 Environment="PATH=/opt/discord-bot/venv/bin"
 ExecStart=/opt/discord-bot/venv/bin/python main.py
