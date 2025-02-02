@@ -174,12 +174,26 @@ class MainView(View):
     @discord.ui.button(label="🎮 서버 시작", style=discord.ButtonStyle.success, custom_id="start_server")
     async def start_server_button(self, interaction: discord.Interaction, button: Button):
         try:
-            # screen 세션에서 서버 시작 명령어 실행
-            start_command = "/usr/bin/screen -S 1031.pzserver -X stuff 'bash start_server.sh\n'"
-            process = subprocess.run(
-                start_command, shell=False, capture_output=True, text=True)
+            command = "screen -S 1031.pzserver -X stuff 'bash start_server.sh\n'"
 
-            if process.returncode == 0:
+        # ProcessBuilder와 비슷한 방식으로 구현
+            process = subprocess.Popen(
+                ["bash", "-c", command],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            # 출력 읽기
+            stdout, stderr = process.communicate()
+            exit_code = process.returncode
+
+            # 디버깅을 위한 로그
+            print(f"Command output: {stdout}")
+            print(f"Error output: {stderr}")
+            print(f"Exit code: {exit_code}")
+
+            if exit_code == 0:
                 embed = discord.Embed(
                     title="서버 시작",
                     description="서버 시작 명령을 전송했습니다.",
@@ -187,6 +201,9 @@ class MainView(View):
                     timestamp=datetime.now(UTC)
                 )
                 embed.add_field(name="상태", value="서버가 곧 시작됩니다.", inline=False)
+                if stdout:
+                    embed.add_field(
+                        name="출력", value=stdout[:1024], inline=False)
             else:
                 embed = discord.Embed(
                     title="서버 시작 실패",
@@ -194,10 +211,12 @@ class MainView(View):
                     color=discord.Color.red(),
                     timestamp=datetime.now(UTC)
                 )
-                embed.add_field(name="오류", value=process.stderr, inline=False)
+                error_msg = stderr if stderr else "알 수 없는 오류"
+                embed.add_field(name="오류", value=error_msg, inline=False)
 
             await interaction.response.send_message(embed=embed)
         except Exception as e:
+            print(f"Exception details: {str(e)}")  # 디버깅용 로그
             await interaction.response.send_message(
                 f"서버 시작 중 오류가 발생했습니다: {str(e)}",
                 ephemeral=True
