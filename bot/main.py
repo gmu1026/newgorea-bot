@@ -253,6 +253,53 @@ class MainView(View):
         except Exception as e:
             await interaction.response.send_message(f"오류가 발생했습니다: {str(e)}", ephemeral=True)
 
+    @discord.ui.button(label="📦 패치파일 다운로드", style=discord.ButtonStyle.primary, custom_id="download_patch")
+    async def download_patch_button(self, interaction: discord.Interaction, button: Button):
+        try:
+            file_path = "/home/pzuser/newgorea-patcher.zip"
+
+            if not os.path.exists(file_path):
+                embed = discord.Embed(
+                    title="파일 없음",
+                    description="패치 파일을 찾을 수 없습니다.",
+                    color=discord.Color.red(),
+                    timestamp=datetime.now(UTC)
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+
+            # 파일 크기 확인 (Discord 파일 크기 제한: 25MB)
+            file_size = os.path.getsize(file_path)
+            if file_size > 25 * 1024 * 1024:  # 25MB in bytes
+                embed = discord.Embed(
+                    title="파일 크기 초과",
+                    description="파일이 Discord 업로드 제한(25MB)을 초과합니다.",
+                    color=discord.Color.red(),
+                    timestamp=datetime.now(UTC)
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+
+            file = discord.File(file_path)
+            embed = discord.Embed(
+                title="패치파일 다운로드",
+                description="아래 파일을 다운로드하세요.",
+                color=discord.Color.blue(),
+                timestamp=datetime.now(UTC)
+            )
+
+            await interaction.response.send_message(
+                embed=embed,
+                file=file
+            )
+
+        except Exception as e:
+            print(f"Exception details: {str(e)}")  # 디버깅용
+            await interaction.response.send_message(
+                f"파일 다운로드 중 오류가 발생했습니다: {str(e)}",
+                ephemeral=True
+            )
+
     @discord.ui.button(label="📦 아이템 지급", style=discord.ButtonStyle.green, custom_id="items")
     async def items_button(self, interaction: discord.Interaction, button: Button):
         modal = ItemModal()
