@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 User=pzuser
-Gruop=pzuser
+Group=pzuser
 WorkingDirectory=/opt/discord-bot
 Environment=TERM=xterm
 ExecStart=/opt/discord-bot/venv/bin/python main.py
