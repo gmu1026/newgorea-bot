@@ -1,15 +1,17 @@
 import discord
 from discord.ext import commands
 import logging
-from rcon import Client
-import asyncio
-from datetime import datetime
+from rcon.source import rcon
+from datetime import datetime, UTC
+from discord.ui import Button, View, Modal, TextInput
+from typing import Optional, List
 from config import DISCORD_TOKEN, RCON_HOST, RCON_PORT, RCON_PASSWORD
 
 # 로깅 설정
+
+
 def setup_logging():
     log_filename = f'bot_{datetime.now().strftime("%Y%m%d")}.log'
-    
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s [%(levelname)s] %(message)s',
@@ -20,174 +22,291 @@ def setup_logging():
     )
     return logging.getLogger('discord_bot')
 
+
 logger = setup_logging()
 
 # 봇 설정
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix='!좀보이드 ', intents=intents)
+bot = commands.Bot(command_prefix='!좀보이드', intents=intents)
+
 
 async def send_rcon_command(command: str) -> str:
     try:
-        logger.info(f'RCON 연결 시도 - Host: {RCON_HOST}, Port: {RCON_PORT}')
-        
-        async with Client(RCON_HOST, RCON_PORT, passwd=RCON_PASSWORD) as client:
-            logger.info(f'명령어 전송: {command}')
-            response = await client.send(command)
-            
-            logger.info(f'응답 데이터 타입: {type(response)}')
-            logger.info(f'Raw 응답: {repr(response)}')
-            
-            if not response:
-                logger.warning('응답이 비어있거나 None입니다')
-                return "서버로부터 응답이 없습니다."
-            return response
-            
+        logger.info(f'RCON 명령어 전송: {command}')
+        response = await rcon(command, host=RCON_HOST, port=RCON_PORT, passwd=RCON_PASSWORD)
+        logger.info(f'응답: {repr(response)}')
+        return response if response else "서버로부터 응답이 없습니다."
     except Exception as e:
-        logger.error(f'RCON 오류 발생: {str(e)}', exc_info=True)
-        logger.error(f'오류 타입: {type(e)}')
+        logger.error(f'RCON 오류: {str(e)}', exc_info=True)
         return f"RCON 오류: {e}"
+
+
+class ItemModal(Modal, title="아이템 지급"):
+    player_name = TextInput(label="플레이어 이름", placeholder="플레이어 이름을 입력하세요")
+    item_name = TextInput(label="아이템 이름", placeholder="예: Base.Axe")
+    amount = TextInput(label="수량", placeholder="1", default="1")
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            item = self.item_name.value
+            if not item.startswith("Base."):
+                item = f"Base.{item}"
+
+            command = f'additem "{self.player_name.value}" "{item}" {self.amount.value}'
+            response = await send_rcon_command(command)
+
+            embed = discord.Embed(
+                title="아이템 지급 결과",
+                color=discord.Color.green(),
+                timestamp=datetime.now(UTC)
+            )
+            embed.add_field(
+                name="플레이어", value=self.player_name.value, inline=True)
+            embed.add_field(name="아이템", value=item, inline=True)
+            embed.add_field(name="수량", value=self.amount.value, inline=True)
+            embed.add_field(name="결과", value=response, inline=False)
+
+            await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            await interaction.response.send_message(f"오류가 발생했습니다: {str(e)}", ephemeral=True)
+
+
+class AccessLevelModal(Modal, title="권한 설정"):
+    player_name = TextInput(label="플레이어 이름", placeholder="플레이어 이름을 입력하세요")
+
+    def __init__(self):
+        super().__init__()
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # 권한 선택 드롭다운을 포함한 후속 메시지 전송
+        embed = discord.Embed(
+            title="권한 레벨 선택",
+            description=f"{self.player_name.value}님의 권한 레벨을 선택하세요.",
+            color=discord.Color.blue(),
+            timestamp=datetime.now(UTC)
+        )
+
+        class AccessLevelView(View):
+            def __init__(self):
+                super().__init__(timeout=60)
+
+            @discord.ui.select(
+                placeholder="권한 레벨을 선택하세요",
+                options=[
+                    discord.SelectOption(
+                        label="player", description="일반 플레이어 권한"),
+                    discord.SelectOption(label="admin", description="관리자 권한"),
+                    discord.SelectOption(
+                        label="moderator", description="중재자 권한"),
+                    discord.SelectOption(
+                        label="overseer", description="감독자 권한"),
+                    discord.SelectOption(label="gm", description="게임 마스터 권한"),
+                    discord.SelectOption(
+                        label="observer", description="관찰자 권한")
+                ]
+            )
+            async def select_callback(self, interaction: discord.Interaction, select):
+                try:
+                    player = self.parent_modal.player_name.value  # Modal의 player_name 값 접근
+                    level = select.values[0]
+                    command = f'setaccesslevel "{player}" {level}'
+                    response = await send_rcon_command(command)
+
+                    result_embed = discord.Embed(
+                        title="권한 설정 결과",
+                        color=discord.Color.green(),
+                        timestamp=datetime.now(UTC)
+                    )
+                    result_embed.add_field(
+                        name="플레이어", value=player, inline=True)
+                    result_embed.add_field(
+                        name="권한 레벨", value=level, inline=True)
+                    result_embed.add_field(
+                        name="서버 응답", value=response, inline=False)
+
+                    await interaction.response.send_message(embed=result_embed)
+                except Exception as e:
+                    await interaction.response.send_message(f"오류가 발생했습니다: {str(e)}", ephemeral=True)
+
+            def set_modal(self, modal):
+                self.parent_modal = modal
+
+        view = AccessLevelView()
+        view.set_modal(self)  # Modal 인스턴스를 View에 전달
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
+class TeleportModal(Modal, title="텔레포트"):
+    player1 = TextInput(label="이동할 플레이어", placeholder="플레이어 이름을 입력하세요")
+    player2 = TextInput(label="목적지 플레이어 (선택사항)",
+                        placeholder="이동할 목적지의 플레이어", required=False)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            if self.player2.value:
+                command = f'teleport "{self.player1.value}" "{self.player2.value}"'
+                description = f"{self.player1.value}님을 {self.player2.value}님의 위치로 이동시켰습니다."
+            else:
+                command = f'teleport "{self.player1.value}"'
+                description = f"{self.player1.value}님을 텔레포트했습니다."
+
+            response = await send_rcon_command(command)
+
+            embed = discord.Embed(
+                title="텔레포트 결과",
+                description=description,
+                color=discord.Color.blue(),
+                timestamp=datetime.now(UTC)
+            )
+            embed.add_field(name="서버 응답", value=response, inline=False)
+
+            await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            await interaction.response.send_message(f"오류가 발생했습니다: {str(e)}", ephemeral=True)
+
+
+class MainView(View):
+    def __init__(self):
+        super().__init__(timeout=None)  # 버튼 시간제한 없음
+
+    @discord.ui.button(label="👥 플레이어 목록", style=discord.ButtonStyle.primary, custom_id="players")
+    async def players_button(self, interaction: discord.Interaction, button: Button):
+        try:
+            response = await send_rcon_command("players")
+
+            player_list = []
+            if response and "Players connected" in response:
+                lines = response.split('\n')
+                for line in lines[1:]:
+                    if line.startswith('-'):
+                        player_list.append(line[1:].strip())
+
+            embed = discord.Embed(
+                title="접속 중인 플레이어",
+                color=discord.Color.blue(),
+                timestamp=datetime.now(UTC)
+            )
+
+            if player_list:
+                embed.description = f"총 {len(player_list)}명 접속 중"
+                players_text = "\n".join(
+                    f"• {player}" for player in player_list)
+                embed.add_field(
+                    name="플레이어 목록", value=players_text, inline=False)
+            else:
+                embed.description = "현재 접속자가 없습니다."
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"오류가 발생했습니다: {str(e)}", ephemeral=True)
+
+    @discord.ui.button(label="📦 아이템 지급", style=discord.ButtonStyle.green, custom_id="items")
+    async def items_button(self, interaction: discord.Interaction, button: Button):
+        modal = ItemModal()
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="👑 권한 설정", style=discord.ButtonStyle.primary, custom_id="access")
+    async def access_button(self, interaction: discord.Interaction, button: Button):
+        modal = AccessLevelModal()
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="🚀 텔레포트", style=discord.ButtonStyle.primary, custom_id="teleport")
+    async def teleport_button(self, interaction: discord.Interaction, button: Button):
+        modal = TeleportModal()
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="🌧️ 날씨 제어", style=discord.ButtonStyle.secondary, custom_id="weather")
+    async def weather_button(self, interaction: discord.Interaction, button: Button):
+        class WeatherView(View):
+            def __init__(self):
+                super().__init__(timeout=60)
+
+            @discord.ui.button(label="비 내리기", style=discord.ButtonStyle.primary)
+            async def rain_start(self, interaction: discord.Interaction, button: Button):
+                response = await send_rcon_command("startrain")
+                embed = discord.Embed(
+                    title="날씨 변경",
+                    description="비가 내리기 시작했습니다.",
+                    color=discord.Color.blue(),
+                    timestamp=datetime.now(UTC)
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+
+            @discord.ui.button(label="비 그치기", style=discord.ButtonStyle.primary)
+            async def rain_stop(self, interaction: discord.Interaction, button: Button):
+                response = await send_rcon_command("stoprain")
+                embed = discord.Embed(
+                    title="날씨 변경",
+                    description="비가 그쳤습니다.",
+                    color=discord.Color.blue(),
+                    timestamp=datetime.now(UTC)
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        weather_view = WeatherView()
+        await interaction.response.send_message("날씨를 선택하세요:", view=weather_view, ephemeral=True)
+
+    @discord.ui.button(label="❌ 서버 종료", style=discord.ButtonStyle.danger, custom_id="quit")
+    async def quit_button(self, interaction: discord.Interaction, button: Button):
+        try:
+            confirm_embed = discord.Embed(
+                title="⚠️ 서버 종료 확인",
+                description="정말로 서버를 종료하시겠습니까?",
+                color=discord.Color.red(),
+                timestamp=datetime.now(UTC)
+            )
+
+            class ConfirmView(View):
+                def __init__(self):
+                    super().__init__(timeout=30)
+
+                @discord.ui.button(label="종료", style=discord.ButtonStyle.danger)
+                async def confirm(self, interaction: discord.Interaction, button: Button):
+                    response = await send_rcon_command("quit")
+                    embed = discord.Embed(
+                        title="서버 종료",
+                        description="서버 종료 명령을 전송했습니다.",
+                        color=discord.Color.red(),
+                        timestamp=datetime.now(UTC)
+                    )
+                    await interaction.response.send_message(embed=embed)
+
+                @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
+                async def cancel(self, interaction: discord.Interaction, button: Button):
+                    embed = discord.Embed(
+                        title="서버 종료 취소",
+                        description="서버 종료가 취소되었습니다.",
+                        color=discord.Color.green(),
+                        timestamp=datetime.now(UTC)
+                    )
+                    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+            confirm_view = ConfirmView()
+            await interaction.response.send_message(embed=confirm_embed, view=confirm_view, ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"오류가 발생했습니다: {str(e)}", ephemeral=True)
+
 
 @bot.event
 async def on_ready():
     logger.info(f'{bot.user.name} 봇이 시작되었습니다.')
 
-@bot.command(name="플레이어")
-async def players(ctx):
-    """접속 중인 플레이어 목록을 확인합니다."""
-    logger.info(f'플레이어 명령어 실행 시작 - 요청자: {ctx.author}')
-    try:
-        response = await send_rcon_command("players")
-        logger.info(f'명령어 실행 완료 - 응답: {response}')
-        
-        formatted_response = response if response else "응답 없음"
-        await ctx.send(f"```플레이어 목록:\n{formatted_response}```")
-    except Exception as e:
-        logger.error(f'명령어 처리 중 오류: {str(e)}', exc_info=True)
-        await ctx.send(f"명령어 처리 중 오류가 발생했습니다: {str(e)}")
 
-@bot.command(name="아이템")
-async def add_item(ctx, player: str, item: str, count: int = 1):
-    """플레이어에게 아이템을 지급합니다."""
-    logger.info(f'아이템 지급 명령어 실행 시작 - 요청자: {ctx.author}, 대상: {player}, 아이템: {item}, 개수: {count}')
-    try:
-        if not item.startswith("Base."):
-            item = f"Base.{item}"
-        response = await send_rcon_command(f'additem "{player}" "{item}" {count}')
-        logger.info(f'명령어 실행 완료 - 응답: {response}')
-        await ctx.send(f"```{response}```")
-    except Exception as e:
-        logger.error(f'명령어 처리 중 오류: {str(e)}', exc_info=True)
-        await ctx.send(f"명령어 처리 중 오류가 발생했습니다: {str(e)}")
+@bot.command(name="봇")
+async def show_menu(ctx):
+    """메인 메뉴를 표시합니다."""
+    embed = discord.Embed(
+        title="🎮 좀보이드 서버 관리",
+        description="원하는 기능의 버튼을 클릭하세요.",
+        color=discord.Color.blue(),
+        timestamp=datetime.now(UTC)
+    )
+    embed.set_footer(text="버튼을 클릭하여 각 기능을 사용할 수 있습니다.")
 
-@bot.command(name="권한")
-async def set_access_level(ctx, player: str, level: str):
-    """플레이어의 권한 레벨을 설정합니다."""
-    logger.info(f'권한 설정 명령어 실행 시작 - 요청자: {ctx.author}, 대상: {player}, 레벨: {level}')
-    try:
-        response = await send_rcon_command(f'setaccesslevel "{player}" {level}')
-        logger.info(f'명령어 실행 완료 - 응답: {response}')
-        await ctx.send(f"```{response}```")
-    except Exception as e:
-        logger.error(f'명령어 처리 중 오류: {str(e)}', exc_info=True)
-        await ctx.send(f"명령어 처리 중 오류가 발생했습니다: {str(e)}")
+    view = MainView()
+    await ctx.send(embed=embed, view=view)
 
-@bot.command(name="공지")
-async def server_message(ctx, *, message: str):
-    """서버 전체 공지를 전송합니다."""
-    logger.info(f'공지 명령어 실행 시작 - 요청자: {ctx.author}, 메시지: {message}')
-    try:
-        response = await send_rcon_command(f'servermsg "{message}"')
-        logger.info(f'명령어 실행 완료 - 응답: {response}')
-        await ctx.send(f"공지를 전송했습니다: {message}")
-    except Exception as e:
-        logger.error(f'명령어 처리 중 오류: {str(e)}', exc_info=True)
-        await ctx.send(f"명령어 처리 중 오류가 발생했습니다: {str(e)}")
-
-@bot.command(name="텔레포트")
-async def teleport(ctx, player1: str, player2: str = None):
-    """플레이어를 텔레포트시킵니다."""
-    try:
-        if player2:
-            logger.info(f'텔레포트 명령어 실행 시작 - 요청자: {ctx.author}, 대상1: {player1}, 대상2: {player2}')
-            command = f'teleport "{player1}" "{player2}"'
-        else:
-            logger.info(f'텔레포트 명령어 실행 시작 - 요청자: {ctx.author}, 대상: {player1}')
-            command = f'teleport "{player1}"'
-        response = await send_rcon_command(command)
-        logger.info(f'명령어 실행 완료 - 응답: {response}')
-        await ctx.send(f"```{response}```")
-    except Exception as e:
-        logger.error(f'명령어 처리 중 오류: {str(e)}', exc_info=True)
-        await ctx.send(f"명령어 처리 중 오류가 발생했습니다: {str(e)}")
-
-@bot.command(name="비내리기")
-async def start_rain(ctx):
-    """비를 내리게 합니다."""
-    logger.info(f'비내리기 명령어 실행 시작 - 요청자: {ctx.author}')
-    try:
-        response = await send_rcon_command("startrain")
-        logger.info(f'명령어 실행 완료 - 응답: {response}')
-        await ctx.send("비가 내리기 시작했습니다.")
-    except Exception as e:
-        logger.error(f'명령어 처리 중 오류: {str(e)}', exc_info=True)
-        await ctx.send(f"명령어 처리 중 오류가 발생했습니다: {str(e)}")
-
-@bot.command(name="비그치기")
-async def stop_rain(ctx):
-    """비를 멈추게 합니다."""
-    logger.info(f'비그치기 명령어 실행 시작 - 요청자: {ctx.author}')
-    try:
-        response = await send_rcon_command("stoprain")
-        logger.info(f'명령어 실행 완료 - 응답: {response}')
-        await ctx.send("비가 그쳤습니다.")
-    except Exception as e:
-        logger.error(f'명령어 처리 중 오류: {str(e)}', exc_info=True)
-        await ctx.send(f"명령어 처리 중 오류가 발생했습니다: {str(e)}")
-
-@bot.command(name="연결테스트")
-async def test_connection(ctx):
-    """RCON 연결을 테스트합니다."""
-    logger.info(f'RCON 연결 테스트 시작 - 요청자: {ctx.author}')
-    try:
-        response = await send_rcon_command("players")
-        await ctx.send(f"연결 테스트 성공!\n응답: {response}")
-        logger.info('RCON 연결 테스트 성공')
-    except Exception as e:
-        error_msg = f"연결 테스트 실패: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        await ctx.send(error_msg)
-
-@bot.command(name="도움말")
-async def help_command(ctx):
-    """사용 가능한 명령어 목록을 보여줍니다."""
-    logger.info(f'도움말 명령어 실행 - 요청자: {ctx.author}')
-    help_text = """
-**좀보이드 서버 명령어 목록**
-`!좀보이드 플레이어` - 접속 중인 플레이어 목록 확인
-`!좀보이드 아이템 [플레이어] [아이템] [개수]` - 아이템 지급
-`!좀보이드 권한 [플레이어] [레벨]` - 권한 설정
-`!좀보이드 공지 [메시지]` - 전체 공지
-`!좀보이드 텔레포트 [플레이어1] [플레이어2]` - 텔레포트
-`!좀보이드 비내리기` - 비 내리기
-`!좀보이드 비그치기` - 비 그치기
-`!좀보이드 연결테스트` - RCON 연결 테스트
-"""
-    await ctx.send(help_text)
-
-@bot.event
-async def on_command_error(ctx, error):
-    """에러 처리 및 로깅"""
-    error_message = ""
-    
-    if isinstance(error, commands.MissingRequiredArgument):
-        error_message = "필요한 인자가 누락되었습니다. `!좀보이드 도움말`을 참고해주세요."
-        logger.warning(f'인자 누락 - 사용자: {ctx.author}, 명령어: {ctx.command}, 누락된 인자: {error.param.name}')
-    else:
-        error_message = f"오류가 발생했습니다: {error}"
-        logger.error(f'예상치 못한 오류 발생 - 사용자: {ctx.author}, 명령어: {ctx.command}', exc_info=error)
-
-    await ctx.send(error_message)
 
 @bot.event
 async def on_error(event, *args, **kwargs):
