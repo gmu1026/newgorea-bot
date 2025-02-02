@@ -1,3 +1,5 @@
+import os
+import asyncio
 import discord
 from discord.ext import commands
 import logging
@@ -256,16 +258,45 @@ class MainView(View):
     @discord.ui.button(label="📦 패치파일 다운로드", style=discord.ButtonStyle.primary, custom_id="download_patch")
     async def download_patch_button(self, interaction: discord.Interaction, button: Button):
         try:
+            script_path = "/home/pzuser/create_patcher.sh"
             file_path = "/home/pzuser/newgorea-patcher.zip"
 
+            # 먼저 로딩 메시지를 보냄
+            await interaction.response.send_message(
+                "패치 파일을 생성 중입니다. 잠시만 기다려주세요...",
+                ephemeral=True
+            )
+
+            # 스크립트 실행
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    script_path,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+
+                if process.returncode != 0:
+                    error_msg = stderr.decode() if stderr else "스크립트 실행 중 오류가 발생했습니다."
+                    await interaction.edit_original_response(
+                        content=f"패치 파일 생성 실패: {error_msg}"
+                    )
+                    return
+            except Exception as e:
+                await interaction.edit_original_response(
+                    content=f"스크립트 실행 중 오류 발생: {str(e)}"
+                )
+                return
+
+            # 파일 존재 여부 확인
             if not os.path.exists(file_path):
                 embed = discord.Embed(
                     title="파일 없음",
-                    description="패치 파일을 찾을 수 없습니다.",
+                    description="패치 파일을 생성할 수 없습니다.",
                     color=discord.Color.red(),
                     timestamp=datetime.now(UTC)
                 )
-                await interaction.response.send_message(embed=embed, ephemeral=True)
+                await interaction.edit_original_response(embed=embed)
                 return
 
             # 파일 크기 확인 (Discord 파일 크기 제한: 25MB)
@@ -277,7 +308,7 @@ class MainView(View):
                     color=discord.Color.red(),
                     timestamp=datetime.now(UTC)
                 )
-                await interaction.response.send_message(embed=embed, ephemeral=True)
+                await interaction.edit_original_response(embed=embed)
                 return
 
             file = discord.File(file_path)
@@ -288,16 +319,16 @@ class MainView(View):
                 timestamp=datetime.now(UTC)
             )
 
-            await interaction.response.send_message(
+            # 기존 메시지를 파일과 함께 업데이트
+            await interaction.edit_original_response(
                 embed=embed,
-                file=file
+                attachments=[file]
             )
 
         except Exception as e:
             print(f"Exception details: {str(e)}")  # 디버깅용
-            await interaction.response.send_message(
-                f"파일 다운로드 중 오류가 발생했습니다: {str(e)}",
-                ephemeral=True
+            await interaction.edit_original_response(
+                content=f"파일 다운로드 중 오류가 발생했습니다: {str(e)}"
             )
 
     @discord.ui.button(label="📦 아이템 지급", style=discord.ButtonStyle.green, custom_id="items")
