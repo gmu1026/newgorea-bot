@@ -5,11 +5,14 @@ After=network.target
 [Service]
 Type=simple
 User=pzuser
+Gruop=pzuser
 WorkingDirectory=/opt/discord-bot
-Environment="PATH=/opt/discord-bot/venv/bin"
+Environment=TERM=xterm
 ExecStart=/opt/discord-bot/venv/bin/python main.py
 Restart=always
 RestartSec=10
+SupplementaryGroups=tty
+ReadWritePaths=/run/screen
 
 [Install]
 WantedBy=multi-user.target

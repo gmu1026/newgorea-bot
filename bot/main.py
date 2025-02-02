@@ -171,37 +171,61 @@ class MainView(View):
     def __init__(self):
         super().__init__(timeout=None)  # 버튼 시간제한 없음
 
-    @discord.ui.button(label="🎮 서버 시작", style=discord.ButtonStyle.success, custom_id="start_server")
-    async def start_server_button(self, interaction: discord.Interaction, button: Button):
-        try:
-            # screen 세션에서 서버 시작 명령어 실행
-            start_command = "screen -S 1031.pzserver -X stuff 'bash start_server.sh\n'"
-            process = subprocess.run(
-                start_command, shell=True, capture_output=True, text=True)
 
-            if process.returncode == 0:
-                embed = discord.Embed(
-                    title="서버 시작",
-                    description="서버 시작 명령을 전송했습니다.",
-                    color=discord.Color.green(),
-                    timestamp=datetime.now(UTC)
-                )
-                embed.add_field(name="상태", value="서버가 곧 시작됩니다.", inline=False)
-            else:
-                embed = discord.Embed(
-                    title="서버 시작 실패",
-                    description="서버 시작 중 오류가 발생했습니다.",
-                    color=discord.Color.red(),
-                    timestamp=datetime.now(UTC)
-                )
-                embed.add_field(name="오류", value=process.stderr, inline=False)
+@discord.ui.button(label="🎮 서버 시작", style=discord.ButtonStyle.success, custom_id="start_server")
+async def start_server_button(self, interaction: discord.Interaction, button: Button):
+    try:
+        # 명시적인 경로 사용
+        screen_command = ["/usr/bin/screen", "-S",
+                          "1031.pzserver", "-X", "stuff", 'bash start_server.sh\n']
 
-            await interaction.response.send_message(embed=embed)
-        except Exception as e:
-            await interaction.response.send_message(
-                f"서버 시작 중 오류가 발생했습니다: {str(e)}",
-                ephemeral=True
+        # 환경변수 설정
+        env = os.environ.copy()
+        env["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        env["TERM"] = "xterm"
+
+        # shell=False로 설정하여 직접 명령어 실행
+        process = subprocess.run(
+            screen_command,
+            shell=False,
+            capture_output=True,
+            text=True,
+            env=env
+        )
+
+        # 디버깅을 위한 상세 출력
+        print(f"Command: {' '.join(screen_command)}")
+        print(f"Return Code: {process.returncode}")
+        print(f"STDOUT: {process.stdout}")
+        print(f"STDERR: {process.stderr}")
+
+        if process.returncode == 0:
+            embed = discord.Embed(
+                title="서버 시작",
+                description="서버 시작 명령을 전송했습니다.",
+                color=discord.Color.green(),
+                timestamp=datetime.now(UTC)
             )
+            embed.add_field(name="상태", value="서버가 곧 시작됩니다.", inline=False)
+        else:
+            embed = discord.Embed(
+                title="서버 시작 실패",
+                description="서버 시작 중 오류가 발생했습니다.",
+                color=discord.Color.red(),
+                timestamp=datetime.now(UTC)
+            )
+            error_msg = process.stderr if process.stderr else "알 수 없는 오류"
+            embed.add_field(name="오류", value=error_msg, inline=False)
+            embed.add_field(name="실행 명령어", value=' '.join(
+                screen_command), inline=False)
+
+        await interaction.response.send_message(embed=embed)
+    except Exception as e:
+        print(f"Exception details: {str(e)}")
+        await interaction.response.send_message(
+            f"서버 시작 중 오류가 발생했습니다: {str(e)}",
+            ephemeral=True
+        )
 
     @discord.ui.button(label="👥 플레이어 목록", style=discord.ButtonStyle.primary, custom_id="players")
     async def players_button(self, interaction: discord.Interaction, button: Button):
