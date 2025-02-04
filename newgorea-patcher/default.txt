@@ -1,0 +1,19 @@
+VERSION = 1,
+
+mods
+{
+	mod = ModManager,
+	mod = modoptions,
+	mod = vs2,
+	mod = PZGKO_Arsenal,
+	mod = PZGKO_Brita,
+	mod = PZGKO_Main,
+	mod = Hx_KR_Lifestyle,
+	mod = Hx_KR_MoreTraitsDynamic,
+	mod = Hx_KR_MapName,
+	mod = Hx_KR_Mod,
+}
+
+maps
+{
+}
