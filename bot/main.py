@@ -169,6 +169,31 @@ class TeleportModal(Modal, title="텔레포트"):
             await interaction.response.send_message(f"오류가 발생했습니다: {str(e)}", ephemeral=True)
 
 
+class RconCommandModal(Modal, title="RCON 커맨드 실행"):
+    command = TextInput(
+        label="커맨드",
+        placeholder="실행할 RCON 커맨드를 입력하세요",
+        style=discord.TextStyle.paragraph  # 여러 줄 입력 가능
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            response = await send_rcon_command(self.command.value)
+
+            embed = discord.Embed(
+                title="RCON 커맨드 실행 결과",
+                color=discord.Color.green(),
+                timestamp=datetime.now(UTC)
+            )
+            embed.add_field(
+                name="실행된 커맨드", value=f"`{self.command.value}`", inline=False)
+            embed.add_field(name="서버 응답", value=response, inline=False)
+
+            await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            await interaction.response.send_message(f"오류가 발생했습니다: {str(e)}", ephemeral=True)
+
+
 class MainView(View):
     def __init__(self):
         super().__init__(timeout=None)  # 버튼 시간제한 없음
@@ -376,6 +401,11 @@ class MainView(View):
 
         weather_view = WeatherView()
         await interaction.response.send_message("날씨를 선택하세요:", view=weather_view, ephemeral=True)
+
+    @discord.ui.button(label="⌨️ RCON 커맨드", style=discord.ButtonStyle.secondary, custom_id="rcon_command")
+    async def rcon_command_button(self, interaction: discord.Interaction, button: Button):
+        modal = RconCommandModal()
+        await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="❌ 서버 종료", style=discord.ButtonStyle.danger, custom_id="quit")
     async def quit_button(self, interaction: discord.Interaction, button: Button):
